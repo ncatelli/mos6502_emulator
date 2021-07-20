@@ -2,27 +2,65 @@ use super::*;
 use crate::cpu::chip8::{self, register, u12::u12, Chip8};
 use crate::cpu::register::Register;
 
-fn inst_to_enumerated_be_byte_vec(inst: u16) -> Vec<(usize, u8)> {
-    inst.to_be_bytes().iter().copied().enumerate().collect()
+macro_rules! generate_parse_test {
+    ($($testname:tt, $input_bytes:literal to $variant:expr,)*) => {
+        $(
+        #[test]
+        fn $testname() {
+            let input: Vec<(usize, u8)> = $input_bytes
+                .to_be_bytes()
+                .iter()
+                .copied()
+                .enumerate()
+                .collect();
+            assert_eq!(
+                Ok(MatchStatus::Match {
+                    span: 0..2,
+                    remainder: &input[2..],
+                    inner: $variant,
+                }),
+                OpcodeVariantParser.parse(&input[..])
+            );
+        }
+        )*
+    };
 }
 
-#[test]
-fn should_parse_cls_opcode() {
-    let input: Vec<(usize, u8)> = 0x00e0u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Cls::default()
-        }),
-        Cls::default().parse(&input[..])
-    );
-}
+#[rustfmt::skip]
+generate_parse_test!(
+    should_parse_cls_opcode, 0x00e0u16 to Opcode::Cls,
+    should_parse_ret_opcode, 0x00eeu16 to Opcode::Ret,
+    should_parse_jump_absolute_opcode, 0x1fffu16 to Opcode::JpNonV0Indexed(u12::new(0xfff)),
+    should_parse_jump_absolute_indexed_by_v0_opcode, 0xbfffu16 to Opcode::JpV0Indexed(u12::new(0xfff)),
+    should_parse_load_absolute_into_i_opcode, 0xafffu16 to Opcode::LdAbsolute(u12::new(0xfff)),
+    should_parse_load_immediate_into_i_opcode, 0x68ffu16 to Opcode::LdImmediate(GpRegisters::V8, 0xff),
+    should_parse_load_byte_register_operation_opcode, 0x8010u16 to Opcode::LdVxVy(GpRegisters::V0, GpRegisters::V1),
+    should_parse_load_byte_into_sound_timer_opcode, 0xf818u16 to Opcode::LdSoundTimerDestTx(GpRegisters::V8),
+    should_parse_load_byte_into_delay_timer_opcode, 0xf815u16 to Opcode::LdDelayTimerDestTx(GpRegisters::V8),
+    should_parse_load_byte_into_register_from_delay_timer_opcode, 0xf807u16 to Opcode::LdDelayTimerSrcTx(GpRegisters::V8),
+    should_parse_load_bcd_from_vx_i_indirect_operation, 0xf833u16 to Opcode::LdBcd(GpRegisters::V8),
+    should_parse_load_keypress_into_register_operation, 0xf80au16 to Opcode::LdK(GpRegisters::V8),
+    should_parse_read_registers_from_memory_operation, 0xf265u16 to Opcode::ReadRegistersFromMemory(GpRegisters::V2),
+    should_parse_store_registers_to_memory_operation, 0xf255u16 to Opcode::StoreRegistersToMemory(GpRegisters::V2),
+    should_parse_call_opcode, 0x2fffu16 to Opcode::Call(u12::new(0xfff)),
+    should_parse_add_immediate_opcode, 0x70ffu16 to Opcode::AddImmediate(GpRegisters::V0, 0xff),
+    should_parse_add_i_register_indexed_opcode, 0xf01eu16 to Opcode::AddIRegisterIndexed(GpRegisters::V0),
+    should_parse_add_vxvy_with_carry_operation, 0x8014u16 to Opcode::AddVxVy(GpRegisters::V0, GpRegisters::V1),
+    should_parse_sub_vxvy_without_borrow_operation, 0x8015u16 to Opcode::Sub(GpRegisters::V0, GpRegisters::V1),
+    should_parse_subn_vxvy_without_borrow_operation, 0x8017u16 to Opcode::Subn(GpRegisters::V0, GpRegisters::V1),
+    should_parse_and_byte_register_operation_opcode, 0x8012u16 to Opcode::And(GpRegisters::V0, GpRegisters::V1),
+    should_parse_or_byte_register_operation_opcode, 0x8011u16 to Opcode::Or(GpRegisters::V0, GpRegisters::V1),
+    should_parse_xor_byte_register_operation_opcode, 0x8013u16 to Opcode::Xor(GpRegisters::V0, GpRegisters::V1),
+    should_parse_shl_vxvy_with_flag_operation, 0x801eu16 to Opcode::Shl(GpRegisters::V0, GpRegisters::V1),
+    should_parse_shr_vxvy_with_flag_operation, 0x8016u16 to Opcode::Shr(GpRegisters::V0, GpRegisters::V1),
+    should_parse_se_immediate_operation_opcode, 0x30ffu16 to Opcode::SeImmediate(GpRegisters::V0, 0xff),
+    should_parse_se_byte_register_operation_opcode, 0x5010u16 to Opcode::SeVxVy(GpRegisters::V0, GpRegisters::V1),
+    should_parse_sne_immediate_operation_opcode, 0x40ffu16 to Opcode::SneImmediate(GpRegisters::V0, 0xff),
+    should_parse_sne_byte_register_operation_opcode, 0x9010u16 to Opcode::SneVxVy(GpRegisters::V0, GpRegisters::V1),
+    should_parse_rnd_immediate_operation_opcode, 0xc0ffu16 to Opcode::Rnd(GpRegisters::V0, 0xff),
+    should_parse_skp_opcode, 0xe09eu16 to Opcode::Skp(GpRegisters::V0),
+    should_parse_sknp_opcode, 0xe0a1u16 to Opcode::Sknp(GpRegisters::V0),
+);
 
 #[test]
 fn should_generate_cls_instruction() {
@@ -35,24 +73,6 @@ fn should_generate_cls_instruction() {
             false
         )),],
         Cls::default().generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_ret_opcode() {
-    let input: Vec<(usize, u8)> = 0x00eeu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ret::default()
-        }),
-        Ret::default().parse(&input[..])
     );
 }
 
@@ -74,27 +94,7 @@ fn should_generate_ret_instruction() {
                 0x1fe
             ))
         ],
-        Ret::default().generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_jump_absolute_opcode() {
-    let input: Vec<(usize, u8)> = 0x1fffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Jp::<NonV0Indexed, addressing_mode::Absolute>::new(
-                addressing_mode::Absolute::new(u12::new(0xfff))
-            )
-        }),
-        Jp::default().parse(&input[..])
+        Ret.generate(&cpu)
     );
 }
 
@@ -106,30 +106,7 @@ fn should_generate_jump_absolute_with_pc_incrementer() {
             register::WordRegisters::ProgramCounter,
             0x1fe
         ))],
-        Jp::<NonV0Indexed, addressing_mode::Absolute>::new(addressing_mode::Absolute::new(
-            u12::new(0x200)
-        ))
-        .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_load_absolute_into_i_opcode() {
-    let input: Vec<(usize, u8)> = 0xafffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ld::<addressing_mode::Absolute>::new(addressing_mode::Absolute::new(u12::new(
-                0xfff
-            )))
-        }),
-        Ld::default().parse(&input[..])
+        Jp::<NonV0Indexed>::new(u12::new(0x200)).generate(&cpu)
     );
 }
 
@@ -141,29 +118,7 @@ fn should_generate_load_absolute_into_i_incrementer() {
             register::WordRegisters::I,
             0xfff
         ))],
-        Ld::<addressing_mode::Absolute>::new(addressing_mode::Absolute::new(u12::new(0xfff)))
-            .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_load_immediate_into_i_opcode() {
-    let input: Vec<(usize, u8)> = 0x68ffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ld::<addressing_mode::Immediate>::new(addressing_mode::Immediate::new(
-                register::GpRegisters::V8,
-                0xff
-            ))
-        }),
-        Ld::default().parse(&input[..])
+        Ld::new(addressing_mode::Absolute::new(u12::new(0xfff))).generate(&cpu)
     );
 }
 
@@ -175,32 +130,11 @@ fn should_generate_load_immediate_into_i_incrementer() {
             register::ByteRegisters::GpRegisters(register::GpRegisters::V8),
             0xff
         ))],
-        Ld::<addressing_mode::Immediate>::new(addressing_mode::Immediate::new(
+        Ld::new(addressing_mode::Immediate::new(
             register::GpRegisters::V8,
             0xff
         ))
         .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_load_byte_register_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x8010u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ld::new(addressing_mode::VxVy::new(
-                register::GpRegisters::V1,
-                register::GpRegisters::V0
-            ))
-        }),
-        <Ld<addressing_mode::VxVy>>::default().parse(&input[..])
     );
 }
 
@@ -230,26 +164,6 @@ fn should_generate_load_byte_register_operation() {
 }
 
 #[test]
-fn should_parse_load_byte_into_sound_timer_opcode() {
-    let input: Vec<(usize, u8)> = 0xF818u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ld::new(addressing_mode::SoundTimerDestTx::new(
-                register::GpRegisters::V8,
-            ))
-        }),
-        <Ld<addressing_mode::SoundTimerDestTx>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_load_byte_into_sound_timer_operation() {
     let cpu = Chip8::<()>::default().with_rng(|| 0u8).with_gp_register(
         register::GpRegisters::V0,
@@ -264,26 +178,6 @@ fn should_generate_load_byte_into_sound_timer_operation() {
             register::GpRegisters::V0,
         ))
         .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_load_byte_into_delay_timer_opcode() {
-    let input: Vec<(usize, u8)> = 0xF815u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ld::new(addressing_mode::DelayTimerDestTx::new(
-                register::GpRegisters::V8,
-            ))
-        }),
-        <Ld<addressing_mode::DelayTimerDestTx>>::default().parse(&input[..])
     );
 }
 
@@ -306,26 +200,6 @@ fn should_generate_load_byte_into_delay_timer_operation() {
 }
 
 #[test]
-fn should_parse_load_byte_into_register_from_delay_timer_opcode() {
-    let input: Vec<(usize, u8)> = 0xF807u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Ld::new(addressing_mode::DelayTimerSrcTx::new(
-                register::GpRegisters::V8,
-            ))
-        }),
-        <Ld<addressing_mode::DelayTimerSrcTx>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_load_byte_into_register_from_delay_timer_operation() {
     let cpu = Chip8::<()>::default().with_rng(|| 0u8).with_timer_register(
         register::TimerRegisters::Delay,
@@ -340,24 +214,6 @@ fn should_generate_load_byte_into_register_from_delay_timer_operation() {
             register::GpRegisters::V0,
         ))
         .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_load_bcd_from_vx_i_indirect_operation() {
-    let input: Vec<(usize, u8)> = 0xF818u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: LdBcd::new(addressing_mode::VxIIndirect::new(register::GpRegisters::V8,))
-        }),
-        <LdBcd<addressing_mode::VxIIndirect>>::default().parse(&input[..])
     );
 }
 
@@ -378,20 +234,6 @@ fn should_generate_load_bcd_from_vx_i_indirect_operation() {
             Microcode::WriteMemory(WriteMemory::new(0x0102, 4)),
         ],
         LdBcd::new(addressing_mode::VxIIndirect::new(register::GpRegisters::V0,)).generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_load_keypress_into_register_operation() {
-    let input: Vec<(usize, u8)> = inst_to_enumerated_be_byte_vec(0xF80Au16);
-
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: LdK::new(register::GpRegisters::V8)
-        }),
-        <LdK>::default().parse(&input[..])
     );
 }
 
@@ -429,22 +271,6 @@ fn should_generate_load_keypress_into_register_operation() {
 }
 
 #[test]
-fn should_parse_read_registers_from_memory_operation() {
-    let input: Vec<(usize, u8)> = inst_to_enumerated_be_byte_vec(0xF265u16);
-
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: ReadRegistersFromMemory::new(addressing_mode::VxIIndirect::new(
-                register::GpRegisters::V2,
-            ))
-        }),
-        <ReadRegistersFromMemory<addressing_mode::VxIIndirect>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_read_registers_from_memory_operation() {
     use crate::address_map::Addressable;
 
@@ -478,22 +304,6 @@ fn should_generate_read_registers_from_memory_operation() {
 }
 
 #[test]
-fn should_parse_store_registers_to_memory_operation() {
-    let input: Vec<(usize, u8)> = inst_to_enumerated_be_byte_vec(0xF255u16);
-
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: StoreRegistersToMemory::new(addressing_mode::VxIIndirect::new(
-                register::GpRegisters::V2,
-            ))
-        }),
-        <StoreRegistersToMemory<addressing_mode::VxIIndirect>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_store_registers_to_memory_operation() {
     let cpu = Chip8::<()>::default()
         .with_rng(|| 0u8)
@@ -523,26 +333,6 @@ fn should_generate_store_registers_to_memory_operation() {
 }
 
 #[test]
-fn should_parse_jump_absolute_indexed_by_v0_opcode() {
-    let input: Vec<(usize, u8)> = 0xbfffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Jp::<V0Indexed, addressing_mode::Absolute>::new(addressing_mode::Absolute::new(
-                u12::new(0xfff)
-            ))
-        }),
-        Jp::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_jump_absolute_indexed_by_v0_with_pc_incrementer() {
     let cpu = Chip8::<()>::default().with_rng(|| 0u8).with_gp_register(
         register::GpRegisters::V0,
@@ -553,28 +343,7 @@ fn should_generate_jump_absolute_indexed_by_v0_with_pc_incrementer() {
             register::WordRegisters::ProgramCounter,
             0x203
         ))],
-        Jp::<V0Indexed, addressing_mode::Absolute>::new(addressing_mode::Absolute::new(u12::new(
-            0x200
-        )))
-        .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_call_opcode() {
-    let input: Vec<(usize, u8)> = 0x2fffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Call::new(addressing_mode::Absolute::new(u12::new(0xfff)))
-        }),
-        Call::default().parse(&input[..])
+        Jp::<V0Indexed>::new(u12::new(0x200)).generate(&cpu)
     );
 }
 
@@ -594,28 +363,7 @@ fn should_generate_call_absolute_instruction() {
                 0x3fe
             ))
         ],
-        Call::new(addressing_mode::Absolute::new(u12::new(0x400))).generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_add_immediate_opcode() {
-    let input: Vec<(usize, u8)> = 0x70ffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Add::new(addressing_mode::Immediate::new(
-                register::GpRegisters::V0,
-                0xff
-            ))
-        }),
-        <Add<addressing_mode::Immediate>>::default().parse(&input[..])
+        Call::new(u12::new(0x400)).generate(&cpu)
     );
 }
 
@@ -636,26 +384,6 @@ fn should_generate_add_immediate() {
 }
 
 #[test]
-fn should_parse_add_i_register_indexed_opcode() {
-    let input: Vec<(usize, u8)> = 0xf01eu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Add::new(addressing_mode::IRegisterIndexed::new(
-                register::GpRegisters::V0
-            ))
-        }),
-        <Add<addressing_mode::IRegisterIndexed>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_add_i_register_indexed() {
     let cpu = Chip8::<()>::default().with_rng(|| 0u8).with_gp_register(
         register::GpRegisters::V5,
@@ -670,24 +398,6 @@ fn should_generate_add_i_register_indexed() {
             register::GpRegisters::V5
         ))
         .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_add_vxvy_with_carry_operation() {
-    let input: Vec<(usize, u8)> = 0x8014u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Add::new(addressing_mode::VxVy::new(GpRegisters::V1, GpRegisters::V0))
-        }),
-        <Add<addressing_mode::VxVy>>::default().parse(&input[..])
     );
 }
 
@@ -748,24 +458,6 @@ fn should_generate_add_vxvy_with_carry_operation_that_does_not_set_overflow_when
 }
 
 #[test]
-fn should_parse_sub_vxvy_without_borrow_operation() {
-    let input: Vec<(usize, u8)> = 0x8015u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Sub::new(addressing_mode::VxVy::new(GpRegisters::V1, GpRegisters::V0))
-        }),
-        <Sub<addressing_mode::VxVy>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_set_borrow_for_sub_vxvy_if_vx_value_is_larger_than_vy_value() {
     let cpu = Chip8::<()>::default()
         .with_rng(|| 0u8)
@@ -818,24 +510,6 @@ fn should_generate_not_set_borrow_for_sub_vxvy_if_vx_value_is_larger_than_vy_val
             ))
         ],
         Sub::new(addressing_mode::VxVy::new(GpRegisters::V1, GpRegisters::V0)).generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_subn_vxvy_without_borrow_operation() {
-    let input: Vec<(usize, u8)> = 0x8017u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Subn::new(addressing_mode::VxVy::new(GpRegisters::V1, GpRegisters::V0))
-        }),
-        <Subn<addressing_mode::VxVy>>::default().parse(&input[..])
     );
 }
 
@@ -898,27 +572,6 @@ fn should_generate_subn_vxvy_without_underflow_operation_that_does_set_underflow
 }
 
 #[test]
-fn should_parse_and_byte_register_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x8012u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: And::new(addressing_mode::VxVy::new(
-                register::GpRegisters::V1,
-                register::GpRegisters::V0
-            ))
-        }),
-        <And<addressing_mode::VxVy>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_and_byte_register_operation() {
     let cpu = Chip8::<()>::default()
         .with_rng(|| 0u8)
@@ -944,27 +597,6 @@ fn should_generate_and_byte_register_operation() {
 }
 
 #[test]
-fn should_parse_or_byte_register_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x8011u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Or::new(addressing_mode::VxVy::new(
-                register::GpRegisters::V1,
-                register::GpRegisters::V0
-            ))
-        }),
-        <Or<addressing_mode::VxVy>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_or_byte_register_operation() {
     let cpu = Chip8::<()>::default()
         .with_rng(|| 0u8)
@@ -986,24 +618,6 @@ fn should_generate_or_byte_register_operation() {
             register::GpRegisters::V0
         ))
         .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_shl_vxvy_with_flag_operation() {
-    let input: Vec<(usize, u8)> = 0x801Eu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Shl::new(addressing_mode::VxVy::new(GpRegisters::V1, GpRegisters::V0))
-        }),
-        <Shl<addressing_mode::VxVy>>::default().parse(&input[..])
     );
 }
 
@@ -1052,24 +666,6 @@ fn should_generate_shl_vxvy_with_flag_operation_that_does_not_overflow_byte_capa
 }
 
 #[test]
-fn should_parse_shr_vxvy_with_flag_operation() {
-    let input: Vec<(usize, u8)> = 0x8016u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Shr::new(addressing_mode::VxVy::new(GpRegisters::V1, GpRegisters::V0))
-        }),
-        <Shr<addressing_mode::VxVy>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_shr_vxvy_with_flag_operation_that_overflows_byte_capacity() {
     let cpu = Chip8::<()>::default().with_gp_register(
         register::GpRegisters::V0,
@@ -1114,27 +710,6 @@ fn should_generate_shr_vxvy_with_flag_operation_that_does_not_overflow_byte_capa
 }
 
 #[test]
-fn should_parse_xor_byte_register_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x8013u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Xor::new(addressing_mode::VxVy::new(
-                register::GpRegisters::V1,
-                register::GpRegisters::V0
-            ))
-        }),
-        <Xor<addressing_mode::VxVy>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_xor_byte_register_operation() {
     let cpu = Chip8::<()>::default()
         .with_rng(|| 0u8)
@@ -1156,27 +731,6 @@ fn should_generate_xor_byte_register_operation() {
             register::GpRegisters::V0
         ))
         .generate(&cpu)
-    );
-}
-
-#[test]
-fn should_parse_se_immediate_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x30ffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Se::new(addressing_mode::Immediate::new(
-                register::GpRegisters::V0,
-                0xff
-            ))
-        }),
-        <Se<addressing_mode::Immediate>>::default().parse(&input[..])
     );
 }
 
@@ -1211,27 +765,6 @@ fn should_generate_se_immediate_operation() {
             0x00
         ))
         .generate(&cpu_ne)
-    );
-}
-
-#[test]
-fn should_parse_se_byte_register_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x5010u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Se::new(addressing_mode::VxVy::new(
-                register::GpRegisters::V1,
-                register::GpRegisters::V0
-            ))
-        }),
-        <Se<addressing_mode::VxVy>>::default().parse(&input[..])
     );
 }
 
@@ -1280,27 +813,6 @@ fn should_generate_se_byte_register_operation() {
 }
 
 #[test]
-fn should_parse_sne_immediate_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x40ffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Sne::new(addressing_mode::Immediate::new(
-                register::GpRegisters::V0,
-                0xff
-            ))
-        }),
-        <Sne<addressing_mode::Immediate>>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_sne_immediate_operation() {
     let cpu_eq = Chip8::<()>::default().with_rng(|| 0u8).with_gp_register(
         register::GpRegisters::V0,
@@ -1331,27 +843,6 @@ fn should_generate_sne_immediate_operation() {
             0xff
         ))
         .generate(&cpu_ne)
-    );
-}
-
-#[test]
-fn should_parse_sne_byte_register_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0x9010u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Sne::new(addressing_mode::VxVy::new(
-                register::GpRegisters::V1,
-                register::GpRegisters::V0
-            ))
-        }),
-        <Sne<addressing_mode::VxVy>>::default().parse(&input[..])
     );
 }
 
@@ -1396,27 +887,6 @@ fn should_generate_sne_byte_register_operation() {
             register::GpRegisters::V0
         ))
         .generate(&cpu_ne)
-    );
-}
-
-#[test]
-fn should_parse_rnd_immediate_operation_opcode() {
-    let input: Vec<(usize, u8)> = 0xc0ffu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Rnd::new(addressing_mode::Immediate::new(
-                register::GpRegisters::V0,
-                0xff
-            ))
-        }),
-        <Rnd<addressing_mode::Immediate>>::default().parse(&input[..])
     );
 }
 
@@ -1473,24 +943,6 @@ fn should_generate_rnd_immediate_operation() {
 }
 
 #[test]
-fn should_parse_skp_opcode() {
-    let input: Vec<(usize, u8)> = 0xE09Eu16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Skp::new(register::GpRegisters::V0)
-        }),
-        <Skp>::default().parse(&input[..])
-    );
-}
-
-#[test]
 fn should_generate_skp_operation() {
     // a cpu with an input value set that matches.
     let cpu_some_eq = Chip8::<()>::default()
@@ -1524,24 +976,6 @@ fn should_generate_skp_operation() {
     assert_eq!(
         Vec::<Microcode>::new(),
         Skp::new(register::GpRegisters::V0).generate(&cpu_none)
-    );
-}
-
-#[test]
-fn should_parse_sknp_opcode() {
-    let input: Vec<(usize, u8)> = 0xE0A1u16
-        .to_be_bytes()
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
-    assert_eq!(
-        Ok(MatchStatus::Match {
-            span: 0..2,
-            remainder: &input[2..],
-            inner: Sknp::new(register::GpRegisters::V0)
-        }),
-        <Sknp>::default().parse(&input[..])
     );
 }
 

@@ -302,7 +302,7 @@ where
 
 impl<R> Cpu<Chip8<R>> for Chip8<R>
 where
-    R: 'static + Clone,
+    R: 'static + Clone + GenerateRandom<u8>,
 {
     fn run(self, cycles: usize) -> StepState<Chip8<R>> {
         let state = self
@@ -317,7 +317,7 @@ where
 
 impl<R> IntoIterator for Chip8<R>
 where
-    R: 'static + Clone,
+    R: 'static + Clone + GenerateRandom<u8>,
 {
     type Item = Vec<microcode::Microcode>;
     type IntoIter = Chip8IntoIterator<R>;
@@ -345,11 +345,12 @@ impl<R> Chip8IntoIterator<R> {
 
 impl<R> Iterator for Chip8IntoIterator<R>
 where
-    R: 'static + Clone,
+    R: 'static + Clone + GenerateRandom<u8>,
 {
     type Item = Vec<microcode::Microcode>;
 
     fn next(&mut self) -> Option<Vec<microcode::Microcode>> {
+        use crate::cpu::Generate;
         let pc = self.state.pc.read();
         let opcodes: [(usize, u8); 2] = [
             (pc as usize, self.state.address_space.read(pc)),
@@ -357,19 +358,18 @@ where
         ];
 
         // Parse correct operation
-        let ops: Box<dyn crate::cpu::Generate<Chip8<_>, _>> =
-            match operations::OpcodeVariantParser.parse(&opcodes[..]) {
-                Ok(parcel::MatchStatus::Match {
-                    span: _,
-                    remainder: _,
-                    inner: op,
-                }) => Ok(op),
-                _ => Err(format!(
-                    "No match found for {:#02x}",
-                    u16::from_be_bytes([opcodes[0].1, opcodes[1].1])
-                )),
-            }
-            .unwrap();
+        let ops = match operations::OpcodeVariantParser.parse(&opcodes[..]) {
+            Ok(parcel::MatchStatus::Match {
+                span: _,
+                remainder: _,
+                inner: op,
+            }) => Ok(op),
+            _ => Err(format!(
+                "No match found for {:#02x}",
+                u16::from_be_bytes([opcodes[0].1, opcodes[1].1])
+            )),
+        }
+        .unwrap();
 
         let microcode_steps: Vec<microcode::Microcode> = ops
             .generate(&self.state)

@@ -10,8 +10,13 @@ pub trait Offset {
     }
 }
 
-pub trait Generate<T, U> {
-    fn generate(&self, cpu: &T) -> U;
+/// Generate fuctions to construct a representation of a set of operations to
+/// transition a passed CPU state type, T, to a new state based on the calling
+/// type.
+pub trait Generate<T> {
+    /// The type of the value output by the generate method.
+    type Item;
+    fn generate(&self, cpu: &T) -> Self::Item;
 }
 
 /// Defines a trait for implementing transformation on a CPU, returning the
